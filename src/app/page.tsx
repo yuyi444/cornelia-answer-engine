@@ -1,129 +1,296 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, FormEvent, useRef, useMemo } from "react";
 
 type Message = {
-  role: "user" | "ai";
-  content: string;
+  id: number;
+  sender: "user" | "bot";
+  text: string;
 };
 
-export default function Home() {
-  const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState<Message[]>([
-    { role: "ai", content: "Hello! How can I help you today?" },
+type ChatSession = {
+  id: number;
+  name: string;
+  messages: Message[];
+};
+
+const ChatPage = () => {
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([
+    { id: 1, name: "New Chat", messages: [] },
   ]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [currentChatId, setCurrentChatId] = useState(1);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [relatedArticles, setRelatedArticles] = useState<{ title: string; url: string }[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const handleSend = async () => {
-    if (!message.trim()) return;
+  const currentMessages = useMemo(() => {
+    return chatSessions.find((chat) => chat.id === currentChatId)?.messages || [];
+  }, [chatSessions, currentChatId]);
 
-    // Add user message to the conversation
-    const userMessage = { role: "user" as const, content: message };
-    setMessages(prev => [...prev, userMessage]);
-    setMessage("");
-    setIsLoading(true);
+  useEffect(() => {
+    scrollToBottom();
+  }, [currentMessages]);
 
-    try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ message }),
-      });
+  useEffect(() => {
+    loadSharedChatFromURL();
+  }, []);
 
-      // TODO: Handle the response from the chat API to display the AI response in the UI
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
-
-
-
-    } catch (error) {
-      console.error("Error:", error);
-    } finally {
-      setIsLoading(false);
+  const handleInputChange = (value: string) => {
+    setInput(value);
+    if (value.startsWith("www")) {
+      setSuggestions([
+        "www.chase.com login",
+        "www.chatgpt",
+        "www.change cyber support.com",
+      ]);
+    } else {
+      setSuggestions([]);
     }
   };
 
+  const handleSuggestionClick = (suggestion: string) => {
+    setInput(suggestion);
+    setSuggestions([]);
+  };
 
-  // TODO: Modify the color schemes, fonts, and UI as needed for a good user experience
-  // Refer to the Tailwind CSS docs here: https://tailwindcss.com/docs/customizing-colors, and here: https://tailwindcss.com/docs/hover-focus-and-other-states
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+
+    const userMessage: Message = {
+      id: Date.now(),
+      sender: "user",
+      text: input.trim(),
+    };
+
+    let newMessages = [...currentMessages, userMessage];
+    updateChatMessages(newMessages);
+    updateChatName(userMessage.text);
+    setInput("");
+    setSuggestions([]);
+    setLoading(true);
+    setRelatedArticles([]); // Clear previous related articles
+
+    try {
+      // Step 1: Fetch bot response
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMessage.text }),
+      });
+
+      const data = await response.json();
+      const botMessage: Message = {
+        id: Date.now() + 1,
+        sender: "bot",
+        text: response.ok ? data.response : "Something went wrong.",
+      };
+
+      // Add the bot message
+      newMessages = [...newMessages, botMessage];
+
+      // Step 2: Fetch related articles from Google Custom Search API
+      const relatedArticlesResponse = await fetch(
+        `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(userMessage.text)}&key=${process.env.NEXT_PUBLIC_GOOGLE_API_KEY}&cx=${process.env.NEXT_PUBLIC_GOOGLE_SEARCH_ENGINE_ID}`
+      );
+      const relatedArticlesData = await relatedArticlesResponse.json();
+
+      const articles = relatedArticlesData.items || [];
+      setRelatedArticles(
+        articles.map((article: any) => ({
+          title: article.title,
+          url: article.link,
+        }))
+      );
+
+      updateChatMessages(newMessages);
+    } catch {
+      updateChatMessages([
+        ...newMessages,
+        { id: Date.now(), sender: "bot", text: "An unexpected error occurred." },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateChatMessages = (newMessages: Message[]) => {
+    setChatSessions((prev) =>
+      prev.map((chat) =>
+        chat.id === currentChatId ? { ...chat, messages: newMessages } : chat
+      )
+    );
+  };
+
+  const updateChatName = (inputText: string) => {
+    setChatSessions((prev) =>
+      prev.map((chat) =>
+        chat.id === currentChatId && chat.name === "New Chat"
+          ? { ...chat, name: inputText.slice(0, 20) }
+          : chat
+      )
+    );
+  };
+
+  const createNewChat = () => {
+    const newChat = { id: Date.now(), name: "New Chat", messages: [] };
+    setChatSessions((prev) => [...prev, newChat]);
+    setCurrentChatId(newChat.id);
+  };
+
+  const shareChat = () => {
+    const chatToShare = chatSessions.find((chat) => chat.id === currentChatId);
+    if (!chatToShare) return;
+
+    const encodedChat = encodeURIComponent(JSON.stringify(chatToShare.messages));
+    const shareableURL = `${window.location.origin}?sharedChat=${encodedChat}`;
+    navigator.clipboard.writeText(shareableURL);
+    alert("Shareable link copied to clipboard!");
+  };
+
+  const loadSharedChatFromURL = () => {
+    const params = new URLSearchParams(window.location.search);
+    const sharedChat = params.get("sharedChat");
+
+    if (sharedChat) {
+      try {
+        const messages: Message[] = JSON.parse(decodeURIComponent(sharedChat));
+        const sharedChatSession: ChatSession = {
+          id: Date.now(),
+          name: "Shared Chat",
+          messages,
+        };
+        setChatSessions((prev) => [...prev, sharedChatSession]);
+        setCurrentChatId(sharedChatSession.id);
+      } catch (error) {
+        console.error("Failed to load shared chat:", error);
+      }
+    }
+  };
+
   return (
-    <div className="flex flex-col h-screen bg-gray-900">
-      {/* Header */}
-      <div className="w-full bg-gray-800 border-b border-gray-700 p-4">
-        <div className="max-w-3xl mx-auto">
-          <h1 className="text-xl font-semibold text-white">Chat</h1>
-        </div>
-      </div>
-
-      {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto pb-32 pt-4">
-        <div className="max-w-3xl mx-auto px-4">
-          {messages.map((msg, index) => (
-            <div
-              key={index}
-              className={`flex gap-4 mb-4 ${
-                msg.role === "ai"
-                  ? "justify-start"
-                  : "justify-end flex-row-reverse"
+    <div className="flex h-screen bg-gradient-to-br from-pink-300 via-purple-300 to-teal-300">
+      {/* Sidebar */}
+      <div className="w-64 bg-white shadow-lg p-4 overflow-y-auto">
+        <button
+          onClick={createNewChat}
+          className="w-full bg-gradient-to-r from-pink-400 to-teal-400 text-white py-2 rounded-lg mb-4 hover:opacity-90"
+        >
+          + New Chat
+        </button>
+        <ul>
+          {chatSessions.map((chat) => (
+            <li
+              key={chat.id}
+              onClick={() => setCurrentChatId(chat.id)}
+              className={`cursor-pointer py-2 px-4 rounded-lg mb-2 ${
+                chat.id === currentChatId
+                  ? "bg-gradient-to-r from-pink-400 to-teal-400 text-white"
+                  : "hover:bg-gray-200 text-gray-700"
               }`}
             >
+              {chat.name}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Main Chat Section */}
+      <div className="flex flex-col flex-1">
+        <header className="bg-gradient-to-r from-pink-500 via-purple-500 to-teal-500 shadow px-4 py-4 flex justify-between items-center rounded-b-lg">
+          <h1 className="text-2xl font-semibold text-white">
+            Cornelia
+          </h1>
+          <button
+            onClick={shareChat}
+            className="bg-white text-pink-500 py-2 px-4 rounded-lg hover:opacity-90 shadow"
+          >
+            Share Chat
+          </button>
+        </header>
+
+        {/* Chat Box */}
+        <div className="flex-1 overflow-y-auto p-4 bg-white bg-opacity-70">
+          {currentMessages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex ${
+                msg.sender === "user" ? "justify-end" : "justify-start"
+              } mb-4`}
+            >
               <div
-                className={`px-4 py-2 rounded-2xl max-w-[80%] ${
-                  msg.role === "ai"
-                    ? "bg-gray-800 border border-gray-700 text-gray-100"
-                    : "bg-cyan-600 text-white ml-auto"
+                className={`rounded-lg px-4 py-2 max-w-xl ${
+                  msg.sender === "user"
+                    ? "bg-gradient-to-r from-pink-400 to-purple-400 text-white"
+                    : "bg-gray-200 text-gray-800"
                 }`}
               >
-                {msg.content}
+                {msg.text}
               </div>
             </div>
           ))}
-          {isLoading && (
-            <div className="flex gap-4 mb-4">
-              <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center">
-                <svg
-                  className="w-5 h-5 text-gray-400"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                >
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-4-8c.79 0 1.5-.71 1.5-1.5S8.79 9 8 9s-1.5.71-1.5 1.5S7.21 11 8 11zm8 0c.79 0 1.5-.71 1.5-1.5S16.79 9 16 9s-1.5.71-1.5 1.5.71 1.5 1.5 1.5zm-4 4c2.21 0 4-1.79 4-4h-8c0 2.21 1.79 4 4 4z" />
-                </svg>
-              </div>
-              <div className="px-4 py-2 rounded-2xl bg-gray-800 border border-gray-700 text-gray-100">
-                <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                  <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                  <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
-                </div>
+
+          {loading && (
+            <div className="flex justify-start mb-4">
+              <div className="flex space-x-1">
+                <span className="block w-2 h-2 bg-gray-400 rounded-full animate-pulse"></span>
+                <span className="block w-2 h-2 bg-gray-400 rounded-full animate-pulse delay-200"></span>
+                <span className="block w-2 h-2 bg-gray-400 rounded-full animate-pulse delay-400"></span>
               </div>
             </div>
           )}
+
+          <div ref={messagesEndRef} />
         </div>
+
+        {/* Input Form */}
+        <form onSubmit={handleSubmit} className="flex p-4 bg-white shadow">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => handleInputChange(e.target.value)}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg shadow-sm"
+            placeholder="Ask me anything..."
+          />
+          <button
+            type="submit"
+            className="bg-gradient-to-r from-pink-400 to-teal-400 text-white px-4 py-2 rounded-lg ml-4 hover:opacity-90"
+          >
+            {loading ? "..." : "Send"}
+          </button>
+        </form>
       </div>
 
-      {/* Input Area */}
-      <div className="fixed bottom-0 w-full bg-gray-800 border-t border-gray-700 p-4">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex gap-3 items-center">
-            <input
-              type="text"
-              value={message}
-              onChange={e => setMessage(e.target.value)}
-              onKeyPress={e => e.key === "Enter" && handleSend()}
-              placeholder="Type your message..."
-              className="flex-1 rounded-xl border border-gray-700 bg-gray-900 px-4 py-3 text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent placeholder-gray-400"
-            />
-            <button
-              onClick={handleSend}
-              disabled={isLoading}
-              className="bg-cyan-600 text-white px-5 py-3 rounded-xl hover:bg-cyan-700 transition-all disabled:bg-cyan-800 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? "Sending..." : "Send"}
-            </button>
-          </div>
+      {/* Related Articles Section */}
+      {relatedArticles.length > 0 && (
+        <div className="w-64 bg-white shadow-lg p-4 overflow-y-auto">
+          <h2 className="text-lg font-bold mb-2 text-gray-700">Related Articles</h2>
+          <ul className="list-none space-y-2">
+  {relatedArticles.map((article, index) => (
+    <li key={index} className="text-sm text-gray-800">
+      <a
+        href={article.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-block px-4 py-2 bg-gradient-to-r from-pink-400 to-teal-400 text-white rounded-lg shadow-md hover:opacity-90"
+      >
+        {article.title}
+      </a>
+    </li>
+  ))}
+</ul>
+
+
         </div>
-      </div>
+      )}
     </div>
   );
-}
+};
+
+export default ChatPage;
