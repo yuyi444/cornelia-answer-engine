@@ -21,21 +21,17 @@ const ChatPage = () => {
   const [currentChatId, setCurrentChatId] = useState(1);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [references, setReferences] = useState<{ title: string; url: string }[]>([]);
   const [relatedArticles, setRelatedArticles] = useState<{ title: string; url: string }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const currentMessages = useMemo(() => {
-    return chatSessions.find((chat) => chat.id === currentChatId)?.messages || [];
+    return chatSessions.find((chat: ChatSession) => chat.id === currentChatId)?.messages || [];
   }, [chatSessions, currentChatId]);
 
   useEffect(() => {
     scrollToBottom();
   }, [currentMessages]);
-
-  useEffect(() => {
-    loadSharedChatFromURL();
-  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -43,20 +39,6 @@ const ChatPage = () => {
 
   const handleInputChange = (value: string) => {
     setInput(value);
-    if (value.startsWith("www")) {
-      setSuggestions([
-        "www.chase.com login",
-        "www.chatgpt",
-        "www.change cyber support.com",
-      ]);
-    } else {
-      setSuggestions([]);
-    }
-  };
-
-  const handleSuggestionClick = (suggestion: string) => {
-    setInput(suggestion);
-    setSuggestions([]);
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -71,14 +53,14 @@ const ChatPage = () => {
 
     let newMessages = [...currentMessages, userMessage];
     updateChatMessages(newMessages);
-    updateChatName(userMessage.text);
     setInput("");
-    setSuggestions([]);
     setLoading(true);
     setRelatedArticles([]); // Clear previous related articles
 
+    // Update the chat name with the first user message
+    updateChatName(userMessage.text);
+
     try {
-      // Step 1: Fetch bot response
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -86,14 +68,23 @@ const ChatPage = () => {
       });
 
       const data = await response.json();
+      const botText = response.ok ? data.response : "Something went wrong.";
+      const formattedReferences = data.formattedReferences || "";
+      const rawReferences = data.references || [];
+      
+      const inlineLinkedText = botText.replace(/\[(\d+)\]/g, (match: string, number: string) => {
+        const url = rawReferences[parseInt(number, 10) - 1];
+        return url ? `<a href="${url}" target="_blank" class="underline text-blue-600">[${number}]</a>` : `[${number}]`;
+      });
+
       const botMessage: Message = {
         id: Date.now() + 1,
         sender: "bot",
-        text: response.ok ? data.response : "Something went wrong.",
+        text: inlineLinkedText, // Inject inline links into the bot's message
       };
 
-      // Add the bot message
       newMessages = [...newMessages, botMessage];
+      updateChatMessages(newMessages);
 
       // Step 2: Fetch related articles from Google Custom Search API
       const relatedArticlesResponse = await fetch(
@@ -109,7 +100,13 @@ const ChatPage = () => {
         }))
       );
 
-      updateChatMessages(newMessages);
+      // Update the References section
+      setReferences(
+        rawReferences.map((url: string, index: number) => ({
+          title: `Reference ${index + 1}`,
+          url,
+        }))
+      );
     } catch {
       updateChatMessages([
         ...newMessages,
@@ -174,28 +171,42 @@ const ChatPage = () => {
     }
   };
 
+  const handleDeleteChat = (chatId: number) => {
+    setChatSessions((prevSessions) =>
+      prevSessions.filter((chat) => chat.id !== chatId)
+    );
+  };
+
   return (
     <div className="flex h-screen bg-gradient-to-br from-pink-300 via-purple-300 to-teal-300">
       {/* Sidebar */}
       <div className="w-64 bg-white shadow-lg p-4 overflow-y-auto">
         <button
           onClick={createNewChat}
-          className="w-full bg-gradient-to-r from-pink-400 to-teal-400 text-white py-2 rounded-lg mb-4 hover:opacity-90"
+          className="w-full bg-pink-500 text-white py-2 rounded-lg mb-4 hover:opacity-90"
         >
           + New Chat
         </button>
-        <ul>
+        <ul className="space-y-2">
           {chatSessions.map((chat) => (
-            <li
-              key={chat.id}
-              onClick={() => setCurrentChatId(chat.id)}
-              className={`cursor-pointer py-2 px-4 rounded-lg mb-2 ${
-                chat.id === currentChatId
-                  ? "bg-gradient-to-r from-pink-400 to-teal-400 text-white"
-                  : "hover:bg-gray-200 text-gray-700"
-              }`}
-            >
-              {chat.name}
+            <li key={chat.id} className="flex justify-between items-center">
+              <button
+                onClick={() => setCurrentChatId(chat.id)}
+                className={`w-full text-left py-2 px-4 rounded-lg ${
+                  chat.id === currentChatId
+                    ? "bg-pink-500 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                {chat.name}
+              </button>
+              <button
+                onClick={() => handleDeleteChat(chat.id)}
+                className="text-red-500 ml-2"
+                aria-label="Delete Chat"
+              >
+                🗑️
+              </button>
             </li>
           ))}
         </ul>
@@ -203,13 +214,14 @@ const ChatPage = () => {
 
       {/* Main Chat Section */}
       <div className="flex flex-col flex-1">
-        <header className="bg-gradient-to-r from-pink-500 via-purple-500 to-teal-500 shadow px-4 py-4 flex justify-between items-center rounded-b-lg">
-          <h1 className="text-2xl font-semibold text-white">
-            Cornelia
-          </h1>
+        {/* Header */}
+        <header className="bg-pink-400 shadow px-4 py-4 flex justify-between items-center">
+          
+        <h1 className="text-2xl font-semibold text-white">🔍 Cornelia</h1>
+
           <button
             onClick={shareChat}
-            className="bg-white text-pink-500 py-2 px-4 rounded-lg hover:opacity-90 shadow"
+            className="bg-purple-300 text-gray-900 px-4 py-2 rounded-lg ml-4 hover:opacity-90"
           >
             Share Chat
           </button>
@@ -227,12 +239,11 @@ const ChatPage = () => {
               <div
                 className={`rounded-lg px-4 py-2 max-w-xl ${
                   msg.sender === "user"
-                    ? "bg-gradient-to-r from-pink-400 to-purple-400 text-white"
-                    : "bg-gray-200 text-gray-800"
+                    ? "bg-pink-400 text-white-800"
+                    : "bg-purple-200 text-gray-800"
                 }`}
-              >
-                {msg.text}
-              </div>
+                dangerouslySetInnerHTML={{ __html: msg.text }} // Render the HTML here
+              />
             </div>
           ))}
 
@@ -255,14 +266,14 @@ const ChatPage = () => {
             type="text"
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg shadow-sm"
+            className="flex-1 px-4 py-2 border border-gray-200 rounded-lg shadow-sm text-gray-900"
             placeholder="Ask me anything..."
           />
           <button
             type="submit"
-            className="bg-gradient-to-r from-pink-400 to-teal-400 text-white px-4 py-2 rounded-lg ml-4 hover:opacity-90"
+            className="bg-purple-200 text-gray-900 px-4 py-2 rounded-lg ml-4 hover:opacity-90"
           >
-            {loading ? "..." : "Send"}
+            {loading ? "webscraping..." : "✈️"}
           </button>
         </form>
       </div>
@@ -270,23 +281,21 @@ const ChatPage = () => {
       {/* Related Articles Section */}
       {relatedArticles.length > 0 && (
         <div className="w-64 bg-white shadow-lg p-4 overflow-y-auto">
-          <h2 className="text-lg font-bold mb-2 text-gray-700">Related Articles</h2>
-          <ul className="list-none space-y-2">
-  {relatedArticles.map((article, index) => (
-    <li key={index} className="text-sm text-gray-800">
-      <a
-        href={article.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-block px-4 py-2 bg-gradient-to-r from-pink-400 to-teal-400 text-white rounded-lg shadow-md hover:opacity-90"
-      >
-        {article.title}
-      </a>
-    </li>
-  ))}
-</ul>
-
-
+          <h1 className="text-lg font-bold mb-2 text-gray-700">Related</h1>
+          <ul className="list-disc pl-4 space-y-2">
+            {relatedArticles.map((article, index) => (
+              <li key={index} className="text-sm text-gray-800">
+                <a
+                  href={article.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#FF1493] hover:underline"
+                >
+                  {article.title}
+                </a>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

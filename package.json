@@ -12,7 +12,10 @@
   "dependencies": {
     "@upstash/ratelimit": "^2.0.5",
     "@upstash/redis": "^1.34.3",
+    "axios": "^1.7.9",
     "cheerio": "^1.0.0",
+    "dotenv": "^16.4.7",
+    "groq": "^3.68.3",
     "groq-sdk": "^0.9.0",
     "next": "15.0.4",
     "prettier": "^3.4.2",
@@ -22,6 +25,7 @@
   },
   "devDependencies": {
     "@types/node": "^20",
+    "@types/puppeteer": "^7.0.4",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^8",
