@@ -14,6 +14,11 @@ type ChatSession = {
   messages: Message[];
 };
 
+type Article = {
+  title: string;
+  link: string;
+};
+
 const ChatPage = () => {
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([
     { id: 1, name: "New Chat", messages: [] },
@@ -21,12 +26,11 @@ const ChatPage = () => {
   const [currentChatId, setCurrentChatId] = useState(1);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [references, setReferences] = useState<{ title: string; url: string }[]>([]);
-  const [relatedArticles, setRelatedArticles] = useState<{ title: string; url: string }[]>([]);
+  const [relatedArticles, setRelatedArticles] = useState<Article[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const currentMessages = useMemo(() => {
-    return chatSessions.find((chat: ChatSession) => chat.id === currentChatId)?.messages || [];
+    return chatSessions.find((chat) => chat.id === currentChatId)?.messages || [];
   }, [chatSessions, currentChatId]);
 
   useEffect(() => {
@@ -55,7 +59,7 @@ const ChatPage = () => {
     updateChatMessages(newMessages);
     setInput("");
     setLoading(true);
-    setRelatedArticles([]); // Clear previous related articles
+    setRelatedArticles([]);
 
     // Update the chat name with the first user message
     updateChatName(userMessage.text);
@@ -69,9 +73,8 @@ const ChatPage = () => {
 
       const data = await response.json();
       const botText = response.ok ? data.response : "Something went wrong.";
-      const formattedReferences = data.formattedReferences || "";
       const rawReferences = data.references || [];
-      
+
       const inlineLinkedText = botText.replace(/\[(\d+)\]/g, (match: string, number: string) => {
         const url = rawReferences[parseInt(number, 10) - 1];
         return url ? `<a href="${url}" target="_blank" class="underline text-blue-600">[${number}]</a>` : `[${number}]`;
@@ -80,31 +83,23 @@ const ChatPage = () => {
       const botMessage: Message = {
         id: Date.now() + 1,
         sender: "bot",
-        text: inlineLinkedText, // Inject inline links into the bot's message
+        text: inlineLinkedText,
       };
 
       newMessages = [...newMessages, botMessage];
       updateChatMessages(newMessages);
 
-      // Step 2: Fetch related articles from Google Custom Search API
+      // Fetch related articles from Google Custom Search API
       const relatedArticlesResponse = await fetch(
         `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(userMessage.text)}&key=${process.env.NEXT_PUBLIC_GOOGLE_API_KEY}&cx=${process.env.NEXT_PUBLIC_GOOGLE_SEARCH_ENGINE_ID}`
       );
       const relatedArticlesData = await relatedArticlesResponse.json();
 
-      const articles = relatedArticlesData.items || [];
+      const articles: Article[] = relatedArticlesData.items || [];
       setRelatedArticles(
-        articles.map((article: any) => ({
+        articles.map((article) => ({
           title: article.title,
-          url: article.link,
-        }))
-      );
-
-      // Update the References section
-      setReferences(
-        rawReferences.map((url: string, index: number) => ({
-          title: `Reference ${index + 1}`,
-          url,
+          link: article.link,
         }))
       );
     } catch {
@@ -149,26 +144,6 @@ const ChatPage = () => {
     const shareableURL = `${window.location.origin}?sharedChat=${encodedChat}`;
     navigator.clipboard.writeText(shareableURL);
     alert("Shareable link copied to clipboard!");
-  };
-
-  const loadSharedChatFromURL = () => {
-    const params = new URLSearchParams(window.location.search);
-    const sharedChat = params.get("sharedChat");
-
-    if (sharedChat) {
-      try {
-        const messages: Message[] = JSON.parse(decodeURIComponent(sharedChat));
-        const sharedChatSession: ChatSession = {
-          id: Date.now(),
-          name: "Shared Chat",
-          messages,
-        };
-        setChatSessions((prev) => [...prev, sharedChatSession]);
-        setCurrentChatId(sharedChatSession.id);
-      } catch (error) {
-        console.error("Failed to load shared chat:", error);
-      }
-    }
   };
 
   const handleDeleteChat = (chatId: number) => {
@@ -216,9 +191,7 @@ const ChatPage = () => {
       <div className="flex flex-col flex-1">
         {/* Header */}
         <header className="bg-pink-400 shadow px-4 py-4 flex justify-between items-center">
-          
-        <h1 className="text-2xl font-semibold text-white">🔍 Cornelia</h1>
-
+          <h1 className="text-2xl font-semibold text-white">🔍 Cornelia</h1>
           <button
             onClick={shareChat}
             className="bg-purple-300 text-gray-900 px-4 py-2 rounded-lg ml-4 hover:opacity-90"
@@ -239,10 +212,10 @@ const ChatPage = () => {
               <div
                 className={`rounded-lg px-4 py-2 max-w-xl ${
                   msg.sender === "user"
-                    ? "bg-pink-400 text-white-800"
+                    ? "bg-pink-400 text-white"
                     : "bg-purple-200 text-gray-800"
                 }`}
-                dangerouslySetInnerHTML={{ __html: msg.text }} // Render the HTML here
+                dangerouslySetInnerHTML={{ __html: msg.text }}
               />
             </div>
           ))}
@@ -286,7 +259,7 @@ const ChatPage = () => {
             {relatedArticles.map((article, index) => (
               <li key={index} className="text-sm text-gray-800">
                 <a
-                  href={article.url}
+                  href={article.link}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-[#FF1493] hover:underline"
