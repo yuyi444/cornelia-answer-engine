@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { useState, useEffect, FormEvent, useRef, useMemo } from "react";
+import React, { useState, useEffect, FormEvent, useRef, useMemo } from "react";
 
 type Message = {
   id: number;
@@ -153,12 +153,12 @@ const ChatPage = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-pink-300 via-purple-300 to-teal-300">
+    <div className="flex h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-700">
       {/* Sidebar */}
-      <div className="w-64 bg-white shadow-lg p-4 overflow-y-auto">
+      <div className="w-64 bg-gray-800 shadow-lg p-4 overflow-y-auto">
         <button
           onClick={createNewChat}
-          className="w-full bg-pink-500 text-white py-2 rounded-lg mb-4 hover:opacity-90"
+          className="w-full bg-gray-700 text-white py-2 rounded-lg mb-4 hover:bg-gray-600"
         >
           + New Chat
         </button>
@@ -169,8 +169,8 @@ const ChatPage = () => {
                 onClick={() => setCurrentChatId(chat.id)}
                 className={`w-full text-left py-2 px-4 rounded-lg ${
                   chat.id === currentChatId
-                    ? "bg-pink-500 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    ? "bg-gray-600 text-white"
+                    : "bg-gray-700 text-gray-400 hover:bg-gray-600"
                 }`}
               >
                 {chat.name}
@@ -190,18 +190,18 @@ const ChatPage = () => {
       {/* Main Chat Section */}
       <div className="flex flex-col flex-1">
         {/* Header */}
-        <header className="bg-pink-400 shadow px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-semibold text-white">🔍 Cornelia</h1>
+        <header className="bg-gray-700 shadow px-4 py-4 flex justify-between items-center">
+          <h1 className="text-2xl font-semibold text-white">WebChat</h1>
           <button
             onClick={shareChat}
-            className="bg-purple-300 text-gray-900 px-4 py-2 rounded-lg ml-4 hover:opacity-90"
+            className="bg-gray-600 text-white px-4 py-2 rounded-lg ml-4 hover:bg-gray-500"
           >
             Share Chat
           </button>
         </header>
 
         {/* Chat Box */}
-        <div className="flex-1 overflow-y-auto p-4 bg-white bg-opacity-70">
+        <div className="flex-1 overflow-y-auto p-4 bg-gray-900 bg-opacity-70">
           {currentMessages.map((msg) => (
             <div
               key={msg.id}
@@ -209,68 +209,80 @@ const ChatPage = () => {
                 msg.sender === "user" ? "justify-end" : "justify-start"
               } mb-4`}
             >
+              {msg.sender === "user" ? (
+                <div className="w-8 h-8 rounded-full bg-[#48AAAD] flex items-center justify-center text-white mr-2">
+                  😊 {/* Smiley face for user */}
+                </div>
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-white mr-2">
+                  🤖 {/* Smiley face for bot */}
+                </div>
+              )}
               <div
                 className={`rounded-lg px-4 py-2 max-w-xl ${
                   msg.sender === "user"
-                    ? "bg-pink-400 text-white"
-                    : "bg-purple-200 text-gray-800"
+                    ? "bg-[#48AAAD] text-white" // Updated to use #48AAAD for the user bubble
+                    : "bg-gray-700 text-gray-300"
                 }`}
                 dangerouslySetInnerHTML={{ __html: msg.text }}
               />
             </div>
           ))}
 
+          {/* Display related articles */}
+          {relatedArticles.length > 0 && (
+            <div className="bg-gray-800 rounded-lg p-4 space-y-2 mt-4">
+              <h3 className="text-lg font-semibold text-white">Related Articles:</h3>
+              <ul className="space-y-2">
+                {relatedArticles.map((article, index) => (
+                  <li key={index} className="text-blue-600 underline">
+                    <a href={article.link} target="_blank" rel="noopener noreferrer">
+                      {article.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {loading && (
             <div className="flex justify-start mb-4">
-              <div className="flex space-x-1">
-                <span className="block w-2 h-2 bg-gray-400 rounded-full animate-pulse"></span>
-                <span className="block w-2 h-2 bg-gray-400 rounded-full animate-pulse delay-200"></span>
-                <span className="block w-2 h-2 bg-gray-400 rounded-full animate-pulse delay-400"></span>
+              <div className="flex justify-start mt-2">
+                <div className="rounded-lg px-4 py-2 max-w-xl bg-gray-600 text-white flex items-center flex-col space-y-2">
+                  <span>searching Google...</span>
+                  {/* Loading indicators with animation */}
+                  <div className="flex flex-col space-y-2">
+                    <div className="w-40 h-5 bg-gray-500 rounded-full animate-pulse"></div>
+                    <div className="w-36 h-5 bg-gray-500 rounded-full animate-pulse"></div>
+                    <div className="w-28 h-5 bg-gray-500 rounded-full animate-pulse"></div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
-          <div ref={messagesEndRef} />
+          <div ref={messagesEndRef}></div>
         </div>
 
-        {/* Input Form */}
-        <form onSubmit={handleSubmit} className="flex p-4 bg-white shadow">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => handleInputChange(e.target.value)}
-            className="flex-1 px-4 py-2 border border-gray-200 rounded-lg shadow-sm text-gray-900"
-            placeholder="Ask me anything..."
-          />
-          <button
-            type="submit"
-            className="bg-purple-200 text-gray-900 px-4 py-2 rounded-lg ml-4 hover:opacity-90"
-          >
-            {loading ? "webscraping..." : "✈️"}
-          </button>
-        </form>
+        {/* Footer - User Input */}
+        <div className="bg-gray-800 px-4 py-2 flex">
+          <form onSubmit={handleSubmit} className="flex w-full space-x-4">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => handleInputChange(e.target.value)}
+              className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none"
+              placeholder="Ask a question..."
+            />
+            <button
+              type="submit"
+              className="bg-[#48AAAD] text-white py-2 px-4 rounded-lg hover:bg-[#48A3A3]"
+            >
+              Send
+            </button>
+          </form>
+        </div>
       </div>
-
-      {/* Related Articles Section */}
-      {relatedArticles.length > 0 && (
-        <div className="w-64 bg-white shadow-lg p-4 overflow-y-auto">
-          <h1 className="text-lg font-bold mb-2 text-gray-700">Related</h1>
-          <ul className="list-disc pl-4 space-y-2">
-            {relatedArticles.map((article, index) => (
-              <li key={index} className="text-sm text-gray-800">
-                <a
-                  href={article.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[#FF1493] hover:underline"
-                >
-                  {article.title}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 };

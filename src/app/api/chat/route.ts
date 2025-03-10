@@ -19,26 +19,19 @@ if (!GOOGLE_API_KEY || !GOOGLE_CSE_ID || !GROQ_API_KEY) {
 const MAX_WORDS = 500;
 
 // Utility Functions
-function isUrl(input: string): boolean {
-  const urlPattern = /^(https?:\/\/[^\s]+)$/;
-  return urlPattern.test(input.trim());
-}
+const isUrl = (input: string): boolean => /^(https?:\/\/[^\s]+)$/.test(input.trim());
 
-function sanitizeUrl(url: string): string {
-  return url.trim().replace(/^[\s\(\[]+|[\s\)\]]+$/g, "");
-}
+const sanitizeUrl = (url: string): string => url.trim().replace(/^[\s\(\[]+|[\s\)\]]+$/g, "");
 
-function formatInlineCitations(references: string[]): string[] {
-  return references.map(
-    (url, index) =>
-      `<a href="${sanitizeUrl(url)}" target="_blank" style="color: #FF1493; text-decoration: underline;">[${index + 1}]</a>`
-  );
-}
+const formatInlineCitations = (references: string[]): string[] => references.map(
+  (url, index) =>
+    `<a href="${sanitizeUrl(url)}" target="_blank" style="color: #48AAAD; text-decoration: underline;">[${index + 1}]</a>`
+);
 
-function truncateText(text: string, maxWords: number): string {
+const truncateText = (text: string, maxWords: number): string => {
   const words = text.split(/\s+/);
   return words.length > maxWords ? words.slice(0, maxWords).join(" ") + " webscraping content..." : text;
-}
+};
 
 // Fetch Google Search results
 async function fetchGoogleSearchResults(query: string): Promise<string[]> {
@@ -46,8 +39,7 @@ async function fetchGoogleSearchResults(query: string): Promise<string[]> {
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      console.error("Failed to fetch search results:", response.statusText);
-      return [];
+      throw new Error(`Failed to fetch search results: ${response.statusText}`);
     }
     const data = await response.json();
     return data.items?.map((item: { link: string }) => item.link) || [];
@@ -74,11 +66,7 @@ async function scrapeContent(url: string): Promise<{ bodyContent: string; citati
 
     await browser.close();
 
-    if (bodyContent.length > 20) {
-      return { bodyContent, citations: [url] };
-    }
-
-    return { bodyContent: "Content is not useful or empty.", citations: [] };
+    return bodyContent.length > 20 ? { bodyContent, citations: [url] } : { bodyContent: "Content is not useful or empty.", citations: [] };
   } catch (error) {
     console.error("Error scraping content from URL:", url, error);
     return { bodyContent: "Error occurred during scraping.", citations: [] };
@@ -100,55 +88,44 @@ export async function POST(request: Request) {
     let references: string[] = [];
 
     if (isUrl(message)) {
-      // Direct link provided by the user
       const { bodyContent, citations } = await scrapeContent(message);
       combinedContent = bodyContent;
       references = citations;
     } else {
-      // Detect if the message includes a URL even within text like "summarize <url>"
       const match = message.match(/https?:\/\/[^\s]+/);
       if (match) {
         const { bodyContent, citations } = await scrapeContent(match[0]);
         combinedContent = bodyContent;
         references = citations;
       } else {
-        // Perform Google search if no URL is provided
         const urls = await fetchGoogleSearchResults(message);
-        if (urls.length > 0) {
-          references = urls;
-          for (const url of urls) {
-            const { bodyContent } = await scrapeContent(url);
-            combinedContent += ` ${bodyContent}`;
-          }
-        } else {
-          // If no search results found, directly use the user's message
-          combinedContent = message;
-          references = []; // No external reference available
+        references = urls;
+        for (const url of urls) {
+          const { bodyContent } = await scrapeContent(url);
+          combinedContent += ` ${bodyContent}`;
         }
       }
     }
 
-    // Handle case where no content is found
     if (!combinedContent.trim()) {
       return NextResponse.json({
         response: "No relevant information could be extracted. Please try a different query or provide a direct link.",
       });
     }
 
-    // Truncate content for AI processing
     const truncatedContent = truncateText(combinedContent, MAX_WORDS);
 
     const aiPrompt = `
-    Summarize the following text in detail with inline citations linked directly to the provided references:
-    User Input: "${message}"
-    Scraped Content: "${truncatedContent}"
+      Summarize the following text in detail with inline citations linked directly to the provided references:
+      User Input: "${message}"
+      Scraped Content: "${truncatedContent}"
 
-    Note:
-    - Use inline citations like [1], [2], etc., directly referencing the URLs.
-    - Do not invent references or citations.
-    - Ensure citations correspond to actual scraped content.
+      *Guidelines*
+      1. Use inline citations like [1], [2], etc., directly referencing the URLs.
+      2. Do not invent references or citations.
+      3. Ensure citations correspond to actual scraped content.
+      4. Do not include URLS in the response.
     `;
-    console.log("Prompt to AI:", aiPrompt);
 
     try {
       const groq = new Groq({ apiKey: GROQ_API_KEY });
@@ -157,12 +134,10 @@ export async function POST(request: Request) {
         model: "llama3-8b-8192",
       });
 
-      const responseMessage =
-        chatCompletion.choices?.[0]?.message?.content?.trim() || "No response from AI model.";
+      const responseMessage = chatCompletion.choices?.[0]?.message?.content?.trim()
+        || "No response from AI model.";
 
-      // Format inline citations
       const clickableCitations = formatInlineCitations(references);
-
       const finalResponse = responseMessage.replace(/\[([0-9]+)\]/g, (_, num) => clickableCitations[num - 1]);
 
       return NextResponse.json({
@@ -182,5 +157,3 @@ export async function POST(request: Request) {
     });
   }
 }
-
-
